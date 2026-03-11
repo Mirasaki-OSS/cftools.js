@@ -23,6 +23,7 @@ jobs:
       - run: npm ci
       # NPM doesn't install devDependencies when a user downloads our package
       # but it sill counts them in the project dependency count.
+      # This is why we install type-fest as a production dependency
       - run: npm pkg delete devDependencies
       - run: npm run build --if-present
       - run: npm publish
