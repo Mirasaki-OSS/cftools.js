@@ -57,7 +57,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Mirasaki/cftools.js.git"
+    "url": "git+https://github.com/Mirasaki-OSS/cftools.js.git"
   },
   "keywords": [
     "cftools",
@@ -74,7 +74,7 @@
   },
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/Mirasaki/cftools.js/issues"
+    "url": "https://github.com/Mirasaki-OSS/cftools.js/issues"
   },
   "dependencies": {
     "cache-manager": "^7.2.8",
