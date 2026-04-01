@@ -1,8 +1,6 @@
 {
   "compilerOptions": {
-    "target": "es2021",
-    "module": "commonjs",
-    "moduleResolution": "node",
+    "types": ["node"],
     "sourceMap": true,
     "outDir": "dist",
     "esModuleInterop": true,
