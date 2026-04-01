@@ -1,7 +1,7 @@
-import { AnyPlayerId } from '../../resolvers/player-ids';
+import type { AnyPlayerId } from "../../resolvers/player-ids";
 
 export type KickOptions = {
-  id: string | AnyPlayerId;
-  reason: string;
-  serverApiId?: string;
+	id: string | AnyPlayerId;
+	reason: string;
+	serverApiId?: string;
 };
