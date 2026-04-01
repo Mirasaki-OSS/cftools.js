@@ -1,9 +1,7 @@
-// tslint:disable: only-arrow-functions
 import { expect } from 'chai';
 import { beforeEach } from 'mocha';
 
 import { getClient } from './client';
-
 import { CFTOOLS_BASE_URL, UnitConstants } from '../src/constants';
 import { ResolveServerIdOptions } from '../src/resolvers/server-id';
 import { Game, LeaderboardSort, LeaderboardStat } from '../src/types/general';
@@ -31,6 +29,25 @@ if (!serverPort) {
   throw new Error('No server port provided');
 }
 
+if (!process.env.BANLIST_ID) {
+  throw new Error('No ban list ID provided');
+}
+if (!process.env.TEST_IP) {
+  throw new Error('No test IP provided');
+}
+if (!process.env.TEST_CFTOOLS_ID) {
+  throw new Error('No test CFTools ID provided');
+}
+if (!process.env.TEST_STEAM_ID) {
+  throw new Error('No test Steam ID provided');
+}
+if (!process.env.TEST_BATTLEYE_GUID) {
+  throw new Error('No test BattleEye GUID provided');
+}
+if (!process.env.TEST_BOHEMIA_INTERACTIVE_UID) {
+  throw new Error('No test Bohemia Interactive UID provided');
+}
+
 const gameServer: ResolveServerIdOptions = {
   game: Game.DayZ,
   ipv4: serverIp,
@@ -47,7 +64,7 @@ const bohemiaInteractiveUID = `${process.env.TEST_BOHEMIA_INTERACTIVE_UID}`;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 beforeEach(async function() {
-  await sleep(UnitConstants.MS_IN_ONE_S * 0.125);
+  return await sleep(UnitConstants.MS_IN_ONE_S * 0.125);
 });
 
 describe('Client module', function() {
@@ -176,7 +193,7 @@ describe('Client module', function() {
       expect(client.authProvider.resolveServerApiId('test')).to.equal('test');
     });
     it('should resolve the server API ID from the client', function() {
-      expect(client.authProvider.resolveServerApiId()).to.equal(client.authProvider.serverApiId);
+      expect(client.authProvider.resolveServerApiId(undefined, true)).to.equal(client.authProvider.serverApiId);
     });
     const serverApiId = client.authProvider.serverApiId;
     it('should throw when resolving the server API ID', function() {

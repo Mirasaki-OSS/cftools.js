@@ -13,6 +13,10 @@ export const getClient = (logLevel: LogLevel, requestTimeout = 1500) => {
     throw new Error('CFTOOLS_APPLICATION_SECRET is not defined');
   }
 
+  if (!process.env.CFTOOLS_SERVER_API_ID) {
+    throw new Error('CFTOOLS_SERVER_API_ID is not defined');
+  }
+
   const logger = new ConsoleLogger(logLevel);
   const client = new CFToolsClient({
     applicationId: process.env.CFTOOLS_APPLICATION_ID,

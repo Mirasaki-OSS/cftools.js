@@ -1,7 +1,6 @@
-// tslint:disable: only-arrow-functions
 import { expect } from 'chai';
 import { getClient } from './client';
-import { LogLevel } from '../src/types/logger';
+import { LogLevel } from '../src';
 
 const logLevel: LogLevel = 'error';
 const client = getClient(logLevel);

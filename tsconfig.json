@@ -1,5 +1,10 @@
 {
   "compilerOptions": {
+    "target": "es2022",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "declaration": true,
+    "declarationMap": true,
     "types": ["node"],
     "sourceMap": true,
     "outDir": "dist",
