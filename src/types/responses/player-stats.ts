@@ -90,6 +90,8 @@ export type PlayerStatisticsValues = {
 };
 
 export type PlayerStatsResponse = BaseResponse & {
+	[playerId: string]: PlayerStatisticsValues;
+} & {
 	identities: PlayerStatisticsIdentities;
 };
 
