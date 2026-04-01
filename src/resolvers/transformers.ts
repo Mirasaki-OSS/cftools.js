@@ -22,6 +22,7 @@ import type {
 	LeaderboardResponse,
 	ListBansResponse,
 	PlayerListResponse,
+	PlayerStatisticsValues,
 	PlayerStatisticsZones,
 	PlayerStatsResponse,
 	PriorityQueueResponse,
@@ -376,11 +377,24 @@ export const transformPlayerStatsResponse = (
 	response: PlayerStatsResponse,
 	resolvedPlayerId: string,
 ): ClientPlayerStatsResponse => {
-	// @ts-expect-error - Untenable interface - needs to be transformed
-	const responseData =
-		resolvedPlayerId in response
-			? (response[resolvedPlayerId] as PlayerStatisticsValues)
-			: null;
+	const isPlayerStatisticsValues = (
+		value: unknown,
+	): value is PlayerStatisticsValues => {
+		return (
+			!!value &&
+			typeof value === "object" &&
+			"created_at" in value &&
+			"updated_at" in value &&
+			"cleared_at" in value &&
+			"omega" in value &&
+			"game" in value
+		);
+	};
+
+	const responseData = isPlayerStatisticsValues(response[resolvedPlayerId])
+		? response[resolvedPlayerId]
+		: null;
+
 	if (!responseData) {
 		throw new LibraryParsingError(
 			"Unresolved player statistics, please create a GitHub issue if you believe this is incorrect",
