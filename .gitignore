@@ -142,4 +142,4 @@ dist
 dist/
 
 # local testing
-/test/local.js
+/test/local.*

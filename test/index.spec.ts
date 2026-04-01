@@ -18,43 +18,16 @@ import { Game, LeaderboardSort, LeaderboardStat } from "../src/types/general";
 import type { LogLevel } from "../src/types/logger";
 import type { ClientGrantsResponse } from "../src/types/responses";
 import { getClient } from "./client";
+import { getEnv } from './env';
 
 const logLevel: LogLevel = "error";
 const client = getClient(logLevel);
-const serverApiId = `${process.env.CFTOOLS_SERVER_API_ID}`;
+const env = getEnv();
 
-const gameServerId = process.env.SERVER_ID;
-const serverIp = process.env.SERVER_IP;
-const serverPort = process.env.SERVER_PORT;
-
-if (!gameServerId) {
-	throw new Error("No server ID provided");
-}
-if (!serverIp) {
-	throw new Error("No server IP provided");
-}
-if (!serverPort) {
-	throw new Error("No server port provided");
-}
-
-if (!process.env.BANLIST_ID) {
-	throw new Error("No ban list ID provided");
-}
-if (!process.env.TEST_IP) {
-	throw new Error("No test IP provided");
-}
-if (!process.env.TEST_CFTOOLS_ID) {
-	throw new Error("No test CFTools ID provided");
-}
-if (!process.env.TEST_STEAM_ID) {
-	throw new Error("No test Steam ID provided");
-}
-if (!process.env.TEST_BATTLEYE_GUID) {
-	throw new Error("No test BattleEye GUID provided");
-}
-if (!process.env.TEST_BOHEMIA_INTERACTIVE_UID) {
-	throw new Error("No test Bohemia Interactive UID provided");
-}
+const serverIp = env.SERVER_IP;
+const serverPort = env.SERVER_PORT;
+const serverApiId = env.CFTOOLS_SERVER_API_ID;
+const serverIdFromEnv = env.SERVER_ID;
 
 const gameServer: ResolveServerIdOptions = {
 	game: Game.DayZ,
@@ -62,12 +35,12 @@ const gameServer: ResolveServerIdOptions = {
 	port: parseInt(serverPort, 10),
 };
 
-const banListId = `${process.env.BANLIST_ID}`;
-const ip = `${process.env.TEST_IP}`;
-const cftoolsId = `${process.env.TEST_CFTOOLS_ID}`;
-const steamId = `${process.env.TEST_STEAM_ID}`;
-const battleEyeGUID = `${process.env.TEST_BATTLEYE_GUID}`;
-const bohemiaInteractiveUID = `${process.env.TEST_BOHEMIA_INTERACTIVE_UID}`;
+const banListId = `${env.BANLIST_ID}`;
+const ip = `${env.TEST_IP}`;
+const cftoolsId = `${env.TEST_CFTOOLS_ID}`;
+const steamId = `${env.TEST_STEAM_ID}`;
+const battleEyeGUID = `${env.TEST_BATTLEYE_GUID}`;
+const bohemiaInteractiveUID = `${env.TEST_BOHEMIA_INTERACTIVE_UID}`;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -228,10 +201,10 @@ describe("Client module", () => {
 	describe("Game Server Details", () => {
 		it("should resolve the server ID", () => {
 			const serverId = client.resolveServerId(gameServer);
-			expect(serverId).to.equal(gameServerId);
+			expect(serverId).to.equal(serverIdFromEnv);
 		});
 		it("should fetch game server details from string", async () => {
-			const details = await client.gameServerDetails(gameServerId);
+			const details = await client.gameServerDetails(serverIdFromEnv);
 			expect(details).to.not.be.undefined;
 		});
 		it("should fetch game server details from object", async () => {
