@@ -678,7 +678,8 @@ export class CFToolsClient {
 
 	/**
 	 * Fetches server information from the CFTools Data API. This includes
-	 * information about the server such as the name, description, and more.
+	 * information about the server such as connection details, gameserver information,
+   * runtime/uptime, and more.
 	 * @param serverApiId The server API ID to fetch information for.
 	 * @returns The server information.
 	 * @throws {NotFoundError} Thrown if the server is not found.
@@ -721,8 +722,7 @@ export class CFToolsClient {
 
 	/**
 	 * Fetches server statistics from the CFTools Data API. This includes
-	 * statistics about the server such as the player count, uptime, and more.
-	 * @param serverApiId The server API ID to fetch statistics for.
+	 * statistics about the server such as the player count, influx, retention, and more.
 	 * @returns The server statistics.
 	 * @throws {NotFoundError} Thrown if the server is not found.
 	 * @throws {MissingServerApiIdError} Thrown if the server API ID is not provided.
