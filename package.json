@@ -1,6 +1,6 @@
 {
 	"name": "@md-oss/cftools.js",
-	"version": "1.1.1",
+	"version": "1.2.0",
 	"description": "JavaScript implementation for the CFTools Data API.",
 	"publishConfig": {
 		"access": "public",
