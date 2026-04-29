@@ -44,6 +44,43 @@ import {
 const defaultRetryableMethods = ["GET", "HEAD", "OPTIONS", "PUT", "DELETE"];
 const defaultRetryableStatusCodes = [408, 425, 429, 500, 502, 503, 504];
 
+/**
+ * Default network error detection for retryable errors.
+ *
+ * Detects:
+ * - AbortError (request aborted)
+ * - TimeoutError (custom timeout)
+ * - SystemUnavailableError (503-like)
+ * - HTTPRequestError with statusCode === 0 (fetch/network failure)
+ * - Generic error messages containing network/socket/timeout indicators
+ */
+const defaultIsRetryableError = (error: unknown): boolean => {
+	if (error instanceof TimeoutError) {
+		return true;
+	}
+	if (error instanceof SystemUnavailableError) {
+		return true;
+	}
+	if (error instanceof HTTPRequestError && error.statusCode === 0) {
+		return true;
+	}
+	if (error instanceof Error && error.name === "AbortError") {
+		return true;
+	}
+
+	const message =
+		error instanceof Error
+			? error.message.toLowerCase()
+			: String(error).toLowerCase();
+	return (
+		message.includes("fetch failed") ||
+		message.includes("network") ||
+		message.includes("socket") ||
+		message.includes("timed out") ||
+		message.includes("abort")
+	);
+};
+
 const defaultParseRateLimitDelayMs: ParseRateLimitDelayMs = (
 	response: Response,
 ): number | null => {
@@ -100,6 +137,7 @@ export const defaultRequestRetryOptions: Required<RequestRetryOptions> = {
 	retryableMethods: defaultRetryableMethods,
 	retryableStatusCodes: defaultRetryableStatusCodes,
 	parseRateLimitDelayMs: defaultParseRateLimitDelayMs,
+	isRetryableError: defaultIsRetryableError,
 	shouldRetry: () => false,
 	resolveRetryDelayMs: (context: RequestRetryDelayContext) =>
 		context.defaultDelayMs,
@@ -422,15 +460,7 @@ export class RequestClient
 			);
 		}
 
-		if (context.error instanceof TimeoutError) {
-			return true;
-		}
-
-		if (context.error instanceof SystemUnavailableError) {
-			return true;
-		}
-
-		return context.error instanceof HTTPRequestError && context.error.statusCode === 0;
+		return this.retryOptions.isRetryableError(context.error ?? new Error());
 	}
 
 	private async scheduleRetry(context: RequestRetryContext): Promise<void> {
