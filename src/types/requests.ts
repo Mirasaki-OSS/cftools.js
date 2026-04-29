@@ -68,6 +68,16 @@ export type RequestRetryCallbackContext = RequestRetryContext & {
 export type ParseRateLimitDelayMs = (response: Response) => number | null;
 
 /**
+ * Detects whether a caught error should trigger a retry.
+ *
+ * Return `true` to retry; return `false` to fail the request.
+ *
+ * By default, this detects transport-level errors (AbortError, network failures,
+ * timeouts) and HTTPRequestError with statusCode === 0 (fetch failure).
+ */
+export type IsRetryableError = (error: unknown) => boolean;
+
+/**
  * Retry configuration for the request client.
  *
  * These options are designed to support two common production patterns:
@@ -128,6 +138,16 @@ export type RequestRetryOptions = {
 	 * When this returns `null`, backoff strategy is used instead.
 	 */
 	parseRateLimitDelayMs?: ParseRateLimitDelayMs;
+	/**
+	 * Detects whether a network error should trigger a retry.
+	 *
+	 * By default, detects AbortError, TimeoutError, SystemUnavailableError,
+	 * HTTPRequestError with statusCode === 0, and error messages containing
+	 * "network", "socket", "timed out", "fetch failed", or "abort".
+	 *
+	 * Provide a custom function to override default error detection.
+	 */
+	isRetryableError?: IsRetryableError;
 	/**
 	 * Optional override hook for retry eligibility.
 	 *
