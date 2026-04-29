@@ -2,11 +2,18 @@ import {
 	API_VERSION,
 	ENTERPRISE_V1_API_BASE_URL,
 	ENTERPRISE_V2_API_BASE_URL,
+	UnitConstants,
 	V1_API_BASE_URL,
 	V2_API_BASE_URL,
 } from "../constants";
 import type { AbstractLogger } from "../types/logger";
-import { AbstractRequestClient } from "../types/requests";
+import {
+	AbstractRequestClient,
+	type ParseRateLimitDelayMs,
+	type RequestRetryContext,
+	type RequestRetryDelayContext,
+	type RequestRetryOptions,
+} from "../types/requests";
 import type { Authentication } from "./auth";
 import {
 	BadSecretError,
@@ -34,30 +41,116 @@ import {
 	UnexpectedError,
 } from "./errors";
 
+const defaultRetryableMethods = ["GET", "HEAD", "OPTIONS", "PUT", "DELETE"];
+const defaultRetryableStatusCodes = [408, 425, 429, 500, 502, 503, 504];
+
+const defaultParseRateLimitDelayMs: ParseRateLimitDelayMs = (
+	response: Response,
+): number | null => {
+	const retryAfter = response.headers.get("retry-after");
+	if (retryAfter) {
+		const retryAfterSeconds = Number.parseFloat(retryAfter);
+		if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+			return Math.round(retryAfterSeconds * UnitConstants.MS_IN_ONE_S);
+		}
+
+		const retryAtEpoch = Date.parse(retryAfter);
+		if (!Number.isNaN(retryAtEpoch)) {
+			return Math.max(retryAtEpoch - Date.now(), 0);
+		}
+	}
+
+	const resetHeaders = [
+		"x-ratelimit-reset-after",
+		"x-rate-limit-reset-after",
+		"x-ratelimit-reset",
+		"x-rate-limit-reset",
+	];
+
+	for (const header of resetHeaders) {
+		const raw = response.headers.get(header);
+		if (!raw) {
+			continue;
+		}
+
+		const value = Number.parseFloat(raw);
+		if (!Number.isFinite(value)) {
+			continue;
+		}
+
+		if (header.includes("after")) {
+			return Math.max(Math.round(value * UnitConstants.MS_IN_ONE_S), 0);
+		}
+
+		const asEpochMs = value > 1_000_000_000_000 ? value : value * 1000;
+		return Math.max(Math.round(asEpochMs - Date.now()), 0);
+	}
+
+	return null;
+};
+
+export const defaultRequestRetryOptions: Required<RequestRetryOptions> = {
+	enabled: true,
+	maxAttempts: 4,
+	baseDelayMs: 250,
+	maxDelayMs: 10_000,
+	capRateLimitDelayToMaxDelayMs: false,
+	backoffFactor: 2,
+	jitterRatio: 0.25,
+	retryableMethods: defaultRetryableMethods,
+	retryableStatusCodes: defaultRetryableStatusCodes,
+	parseRateLimitDelayMs: defaultParseRateLimitDelayMs,
+	shouldRetry: () => false,
+	resolveRetryDelayMs: (context: RequestRetryDelayContext) =>
+		context.defaultDelayMs,
+	onRetry: () => undefined,
+};
+
 export class RequestClient
 	extends AbstractRequestClient
 	implements AbstractRequestClient
 {
+	public retryOptions: Required<RequestRetryOptions> =
+		defaultRequestRetryOptions;
+
 	/**
 	 * Creates a new request client to interact with the CFTools API
 	 * @param authProvider The authentication provider to use for requests
 	 * @param logger The logger to use for logging messages
 	 * @param timeout The timeout for requests in milliseconds
+	 * @param retryOptions Retry behavior for transient request failures
 	 */
 	constructor(
 		private authProvider: Authentication,
 		private logger: AbstractLogger,
 		public timeout = 10000,
+		retryOptions?: RequestRetryOptions,
 	) {
 		super();
+		this.setRetryOptions(retryOptions);
 		this.apiUrl = this.apiUrl.bind(this);
 		this.resolveHeaders = this.resolveHeaders.bind(this);
 		this.resolveRequestOptions = this.resolveRequestOptions.bind(this);
+		this.setRetryOptions = this.setRetryOptions.bind(this);
 		this.request = this.request.bind(this);
 		this.get = this.get.bind(this);
 		this.post = this.post.bind(this);
 		this.put = this.put.bind(this);
 		this.delete = this.delete.bind(this);
+	}
+
+	public setRetryOptions(options: RequestRetryOptions = {}): void {
+		this.retryOptions = {
+			...defaultRequestRetryOptions,
+			...options,
+			retryableMethods: (
+				options.retryableMethods ?? defaultRetryableMethods
+			).map((method) => method.toLocaleUpperCase()),
+			retryableStatusCodes:
+				options.retryableStatusCodes ?? defaultRetryableStatusCodes,
+			parseRateLimitDelayMs:
+				options.parseRateLimitDelayMs ?? defaultParseRateLimitDelayMs,
+		};
 	}
 
 	/**
@@ -192,69 +285,228 @@ export class RequestClient
 			await this.authProvider.performRefresh();
 		}
 
-		let response: Response;
 		const method = options.method?.toLocaleUpperCase() ?? "GET";
+		const maxAttempts =
+			this.retryOptions.enabled && !isAuthenticating
+				? Math.max(1, this.retryOptions.maxAttempts)
+				: 1;
 
-		try {
-			response = await fetch(
-				url,
-				this.resolveRequestOptions(url, options, isAuthenticating),
+		for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+			let response: Response;
+
+			try {
+				response = await fetch(
+					url,
+					this.resolveRequestOptions(url, options, isAuthenticating),
+				);
+			} catch (e) {
+				const error = this.normalizeNetworkError(e);
+				const context: RequestRetryContext = {
+					url,
+					method,
+					options,
+					attempt,
+					maxAttempts,
+					isAuthenticating,
+					error,
+				};
+
+				if (await this.shouldRetry(context)) {
+					await this.scheduleRetry(context);
+					continue;
+				}
+
+				throw error;
+			}
+
+			if (!response.ok) {
+				const context: RequestRetryContext = {
+					url,
+					method,
+					options,
+					attempt,
+					maxAttempts,
+					isAuthenticating,
+					response,
+					responseInfo: this.responseInfo(response),
+				};
+        
+				if (await this.shouldRetry(context)) {
+					await this.scheduleRetry(context);
+					continue;
+				}
+
+				await this.errorHandler({ url, method }, response);
+			}
+
+			this.logger.debug(
+				`${method} Request to ${url} successful`,
+				response.statusText,
 			);
-		} catch (e) {
-			this.logger.error("Request failed", "error", `${e}`);
 
-			if (e instanceof Error && e.name === "AbortError") {
-				throw new TimeoutError({
-					status: 408,
-					body: { error: "[abort] Request timed out" },
-				});
+			if (response.status === 204) {
+				this.logger.debug(
+					"Request was successful but returned no content, returning empty response",
+				);
+				return undefined as unknown as T;
 			}
 
-			if (e instanceof Error && e.name === "TimeoutError") {
-				throw new TimeoutError({
-					status: 408,
-					body: { error: "Request timed out" },
-				});
+			let json: unknown;
+			try {
+				json = await response.json();
+			} catch (e) {
+				this.logger.error(
+					"Failed to parse response",
+					"error",
+					`${e}`,
+					"response",
+					response,
+				);
+				throw new LibraryParsingError(
+					"Failed to parse response, create a GitHub issue with the response body",
+				);
 			}
 
-			throw new HTTPRequestError(0, "Request failed", { error: `${e}` });
+			this.logger.debug(`Parsed response from ${method} ${url}`, json);
+
+			return json as T;
 		}
 
-		if (!response.ok) {
-			await this.errorHandler({ url, method }, response);
+		throw new HTTPRequestError(0, "Request failed after retries", null);
+	}
+
+	private normalizeNetworkError(error: unknown): HTTPRequestError {
+		this.logger.error("Request failed", "error", `${error}`);
+
+		if (error instanceof Error && error.name === "AbortError") {
+			return new TimeoutError({
+				status: 408,
+				body: { error: "[abort] Request timed out" },
+			});
 		}
 
-		this.logger.debug(
-			`${method} Request to ${url} successful`,
-			response.statusText,
+		if (error instanceof Error && error.name === "TimeoutError") {
+			return new TimeoutError({
+				status: 408,
+				body: { error: "[timeout] Request timed out" },
+			});
+		}
+
+		if (error instanceof HTTPRequestError) {
+			return error;
+		}
+
+		return new HTTPRequestError(0, "Request failed", { error: `${error}` });
+	}
+
+	private async shouldRetry(context: RequestRetryContext): Promise<boolean> {
+		if (!this.retryOptions.enabled || context.isAuthenticating) {
+			return false;
+		}
+
+		if (context.attempt >= context.maxAttempts) {
+			return false;
+		}
+
+		if (!this.retryOptions.retryableMethods.includes(context.method)) {
+			return false;
+		}
+
+		if (await this.retryOptions.shouldRetry(context)) {
+			return true;
+		}
+
+		if (context.response) {
+			return this.retryOptions.retryableStatusCodes.includes(
+				context.response.status,
+			);
+		}
+
+		if (context.error instanceof TimeoutError) {
+			return true;
+		}
+
+		if (context.error instanceof SystemUnavailableError) {
+			return true;
+		}
+
+		return context.error instanceof HTTPRequestError && context.error.statusCode === 0;
+	}
+
+	private async scheduleRetry(context: RequestRetryContext): Promise<void> {
+		const defaultDelayMs = this.defaultRetryDelayMs(context);
+		const resolvedDelayMs = await this.retryOptions.resolveRetryDelayMs({
+			...context,
+			defaultDelayMs,
+		});
+		const safeDelayMs = Number.isFinite(resolvedDelayMs)
+			? Math.max(0, Math.round(resolvedDelayMs))
+			: 0;
+
+		this.logger.warn(
+			`Retrying ${context.method} ${context.url}`,
+			`attempt ${context.attempt + 1}/${context.maxAttempts}`,
+			`in ${safeDelayMs}ms`,
+			context.responseInfo
+				? `status ${context.responseInfo.status} ${context.responseInfo.statusText}`
+				: context.error instanceof Error
+					? context.error.message
+					: `${context.error ?? "unknown error"}`,
 		);
 
-		if (response.status === 204) {
-			this.logger.debug(
-				"Request was successful but returned no content, returning empty response",
-			);
-			return undefined as unknown as T;
+		await this.retryOptions.onRetry({ ...context, delayMs: safeDelayMs });
+
+		if (safeDelayMs > 0) {
+			await this.wait(safeDelayMs);
+		}
+	}
+
+	private defaultRetryDelayMs(context: RequestRetryContext): number {
+		if (context.response?.status === 429) {
+			const headerDelay = this.retryOptions.parseRateLimitDelayMs(context.response);
+			if (headerDelay !== null) {
+				const safeHeaderDelayMs = Math.max(Math.round(headerDelay), 0);
+				if (!this.retryOptions.capRateLimitDelayToMaxDelayMs) {
+					return safeHeaderDelayMs;
+				}
+
+				return Math.min(safeHeaderDelayMs, this.retryOptions.maxDelayMs);
+			}
 		}
 
-		let json: unknown;
-		try {
-			json = await response.json();
-		} catch (e) {
-			this.logger.error(
-				"Failed to parse response",
-				"error",
-				`${e}`,
-				"response",
-				response,
-			);
-			throw new LibraryParsingError(
-				"Failed to parse response, create a GitHub issue with the response body",
-			);
+		const retryIndex = context.attempt - 1;
+		const backoffDelayMs =
+			this.retryOptions.baseDelayMs *
+			this.retryOptions.backoffFactor ** Math.max(retryIndex, 0);
+		const cappedDelayMs = Math.min(backoffDelayMs, this.retryOptions.maxDelayMs);
+
+		if (this.retryOptions.jitterRatio <= 0) {
+			return Math.round(cappedDelayMs);
 		}
 
-		this.logger.debug(`Parsed response from ${method} ${url}`, json);
+		const jitter = cappedDelayMs * this.retryOptions.jitterRatio;
+		const min = Math.max(0, cappedDelayMs - jitter);
+		const max = cappedDelayMs + jitter;
 
-		return json as T;
+		return Math.round(min + Math.random() * (max - min));
+	}
+
+	private async wait(ms: number): Promise<void> {
+		await new Promise<void>((resolve) => {
+			setTimeout(resolve, ms);
+		});
+	}
+
+	private responseInfo(response: Response): {
+		status: number;
+		statusText: string;
+		headers: Record<string, string>;
+	} {
+		return {
+			status: response.status,
+			statusText: response.statusText,
+			headers: Object.fromEntries(response.headers.entries()),
+		};
 	}
 
 	/**
