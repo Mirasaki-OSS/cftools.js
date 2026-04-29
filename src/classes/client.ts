@@ -51,6 +51,7 @@ import type {
 	ClientAuthenticationData,
 } from "../types/auth";
 import type { AbstractLogger } from "../types/logger";
+import type { RequestRetryOptions } from "../types/requests";
 import type {
 	AuthenticationResponse,
 	BatchPostGameLabsActionOptions,
@@ -210,6 +211,10 @@ export type ClientOptions = {
 	 */
 	requestTimeout?: number;
 	/**
+	 * Retry behavior for transient failures (network errors, rate limits, etc.).
+	 */
+	retryOptions?: RequestRetryOptions;
+	/**
 	 * Should the Account Creation API be used? Explicit permission needs to be
 	 * obtained from the CFTools team to use this API. When enabled, the client
 	 * will create user accounts for identities that have never connected to
@@ -280,6 +285,7 @@ export class CFToolsClient {
 			this.authProvider,
 			this.logger.extend("RequestClient"),
 			options?.requestTimeout,
+			options?.retryOptions,
 		);
 		this.cacheManager = CacheManager.getInstance();
 		this.cachingEnabled = cacheConfiguration?.enabled ?? true;
