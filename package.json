@@ -46,7 +46,7 @@
 		"up:major": "npx npm-check-updates@latest -u --target latest && npm install"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.4.13",
+		"@biomejs/biome": "2.4.14",
 		"@types/chai": "^5.2.3",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^25.6.0",
